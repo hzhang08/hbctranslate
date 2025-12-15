@@ -1,0 +1,28 @@
+# Credentials and sensitive files
+credentials.json
+*.json
+
+# Go build artifacts
+googledoc-reader
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test files
+*.test
+*.out
+
+# Go coverage files
+*.cover
+*.coverprofile
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
