@@ -339,28 +339,6 @@ func applyChineseLineSpacing(docID string) error {
 	return nil
 }
 
-// startsWithChinese checks if the first non-whitespace character in text is Chinese
-func startsWithChinese(text string) bool {
-	text = strings.TrimSpace(text)
-	if len(text) == 0 {
-		return false
-	}
-
-	// Get the first rune (character)
-	for _, r := range text {
-		// Check for CJK Unified Ideographs (most common Chinese characters)
-		// Unicode range U+4E00–U+9FFF covers most Chinese characters
-		if r >= '\u4e00' && r <= '\u9fff' {
-			return true
-		}
-		// If we encounter a non-whitespace character that's not Chinese, return false
-		if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
-			return false
-		}
-	}
-	return false
-}
-
 // applyFormattingToRange applies LineFeatures to a specific range in the target document
 func applyFormattingToRange(docsService *docs.Service, docID string, startIndex, endIndex int64, features *LineFeatures) error {
 	var requests []*docs.Request
@@ -521,56 +499,6 @@ func syncDocumentFormatting(sourceURL, targetURL string) {
 
 // Utility functions for dual-document synchronization
 
-// generateLineKey creates a normalized key from line text by removing all spaces
-// and ignoring leading non-English characters, only including letters starting from first English letter
-func generateLineKey(text string) string {
-	// Find the first English letter
-	firstEnglishIndex := -1
-	for i, r := range text {
-		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-			firstEnglishIndex = i
-			break
-		}
-	}
-
-	// If no English letters found, return empty string
-	if firstEnglishIndex == -1 {
-		return ""
-	}
-
-	// Extract text starting from first English letter
-	englishPortion := text[firstEnglishIndex:]
-
-	// Remove all whitespace but keep all other characters (letters, numbers, punctuation)
-	var result strings.Builder
-	for _, r := range englishPortion {
-		if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
-			result.WriteRune(r)
-		}
-	}
-
-	key := strings.ToLower(result.String())
-
-	// Remove single character + dot patterns from the beginning (e.g., "a.", "1.", "b.", "2.")
-	if len(key) >= 2 && key[1] == '.' {
-		key = key[2:]
-	}
-
-	return key
-}
-
-// containsChinese checks if text contains Chinese characters
-func containsChinese(text string) bool {
-	for _, r := range text {
-		// Check for CJK Unified Ideographs (most common Chinese characters)
-		// Unicode range U+4E00–U+9FFF covers most Chinese characters
-		if r >= '\u4e00' && r <= '\u9fff' {
-			return true
-		}
-	}
-	return false
-}
-
 // extractLineFeatures extracts all formatting features from a document element and text run
 func extractLineFeatures(element *docs.StructuralElement, textRun *docs.TextRun, text string) *LineFeatures {
 	features := &LineFeatures{
@@ -710,7 +638,7 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 	for loopID := 1; ; loopID++ {
 		fmt.Printf("Loop %d, lastProcessedWasChinese: %v\n", loopID, lastProcessedWasChinese)
 		// Only advance source cursor if the last target line processed was Chinese
-		if lastProcessedWasChinese {
+		if shouldAdvanceSourceCursor(lastProcessedWasChinese) {
 			// Advance to next English source line (source only has English lines)
 			var err error
 			sourceLineInfo, err = getNextNonEmptyLine(sourceCursor)
@@ -741,12 +669,15 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 		}
 		targetLineNum++
 
-		// Check if target line contains Chinese characters
-		if containsChinese(targetLineInfo.Text) {
+		// Use matcher to analyze the line and make decisions
+		decision := AnalyzeLineMatch(sourceLineInfo.Text, targetLineInfo.Text, previousFeatures, lastProcessedWasChinese)
+		fmt.Printf("Line Decision: %+v\n", decision)
+
+		if decision.LineType == LineTypeChinese || decision.LineType == LineTypeMixed {
 			fmt.Printf("Target Line %d (Chinese): %s - applying previous formatting\n", targetLineNum, targetLineInfo.Text)
 
-			// Apply previous line's formatting if available
-			if previousFeatures != nil {
+			// Apply previous line's formatting if available and decision recommends it
+			if decision.ShouldFollowPrevStyle && previousFeatures != nil {
 				err := applyFormattingToRange(docsService, targetDocID, targetLineInfo.Element.StartIndex, targetLineInfo.Element.EndIndex, previousFeatures)
 				if err != nil {
 					fmt.Printf("  Warning: Failed to apply formatting: %v\n", err)
@@ -756,7 +687,6 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 			}
 
 			// Mark that we processed a Chinese line - this will trigger source advance next iteration
-			// to skip over the corresponding Chinese source line
 			lastProcessedWasChinese = true
 		} else {
 			// Generate key for English target line
@@ -764,7 +694,7 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 			fmt.Printf("Target Line %d (English): %s (key: %s)\n", targetLineNum, targetLineInfo.Text, targetKey)
 
 			// Check if keys match with current source line
-			if sourceKey != targetKey {
+			if !decision.LinesMatch {
 				return &SyncError{
 					SourceLine: sourceLineNum,
 					TargetLine: targetLineNum,
@@ -865,32 +795,3 @@ func extractDocumentID(url string) string {
 }
 
 // getFirstLineFromDoc reads a Google Doc and returns the first line of text
-func getFirstLineFromDoc(docID string) (string, error) {
-	ctx := context.Background()
-
-	// Load credentials from file
-	credentialsFile := "churchoutline.json"
-	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
-		return "", fmt.Errorf("churchoutline.json not found. Please follow setup instructions in README.md")
-	}
-
-	// Create Docs service using credentials file directly
-	docsService, err := docs.NewService(ctx, option.WithCredentialsFile(credentialsFile), option.WithScopes(docs.DocumentsReadonlyScope))
-	if err != nil {
-		return "", fmt.Errorf("unable to create Docs service: %v", err)
-	}
-
-	// Get the document
-	doc, err := docsService.Documents.Get(docID).Do()
-	if err != nil {
-		return "", fmt.Errorf("unable to retrieve document: %v", err)
-	}
-
-	// Extract first 10 lines of text with formatting
-	first10LinesInfo := extractFirst10LinesWithFormatting(doc)
-	if first10LinesInfo == "" {
-		return "", fmt.Errorf("no text content found in document")
-	}
-
-	return first10LinesInfo, nil
-}

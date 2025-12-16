@@ -60,17 +60,33 @@ If using a service account, share the Google Doc with the service account email:
 
 ## Usage
 
+### Basic Document Reading
+
 Run the tool with a Google Docs URL:
 
 ```bash
-go run main.go "https://docs.google.com/document/d/12sJRJ57pNy9zJ6YMD9_HRNuD_UPuWEWnjIBxvul8sRQ/edit?tab=t.0"
+go run . "https://docs.google.com/document/d/12sJRJ57pNy9zJ6YMD9_HRNuD_UPuWEWnjIBxvul8sRQ/edit?tab=t.0"
 ```
 
-### Example Output
+#### Example Output
 ```
 Document ID: 12sJRJ57pNy9zJ6YMD9_HRNuD_UPuWEWnjIBxvul8sRQ
 First line: This is the first line of the document
 ```
+
+### Document Synchronization and Formatting
+
+Synchronize formatting between two documents (source and target):
+
+```bash
+go run . sync-format "https://docs.google.com/document/d/1FZcELu78lNNvjSEitEpUn_n0B0xCfgrq3uI_1d_Hm7g/edit?tab=t.0" "https://docs.google.com/document/d/1KLQOlC6lY3JujsTtoRxDF79SsVE5DWouNV0JBBAB8kQ/edit?tab=t.0"
+```
+
+This command will:
+- Read formatting from the source document (first URL)
+- Apply matching formatting to corresponding lines in the target document (second URL)
+- Handle bilingual documents with English and Chinese content
+- Automatically detect line types and apply appropriate formatting rules
 
 ## Building
 
