@@ -88,6 +88,19 @@ This command will:
 - Handle bilingual documents with English and Chinese content
 - Automatically detect line types and apply appropriate formatting rules
 
+### Adding Spacing After Chinese Lines
+
+Add empty lines after Chinese text for better readability:
+
+```bash
+go run . add-spacing "https://docs.google.com/document/d/1KLQOlC6lY3JujsTtoRxDF79SsVE5DWouNV0JBBAB8kQ/edit?tab=t.0"
+```
+
+This command will:
+- Scan the document for lines that start with Chinese characters
+- Automatically insert empty lines after Chinese text
+- Improve document readability and formatting
+
 ## Building
 
 To build a standalone executable:
