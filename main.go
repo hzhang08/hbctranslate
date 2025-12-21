@@ -341,6 +341,10 @@ func applyChineseLineSpacing(docID string) error {
 
 // applyFormattingToRange applies LineFeatures to a specific range in the target document
 func applyFormattingToRange(docsService *docs.Service, docID string, startIndex, endIndex int64, features *LineFeatures) error {
+
+	// Add configurable delay after formatting application to avoid API rate limits
+	time.Sleep(time.Duration(FormattingDelaySeconds) * time.Second)
+
 	var requests []*docs.Request
 
 	// Print all the features applied to this line
@@ -481,9 +485,6 @@ func applyFormattingToRange(docsService *docs.Service, docID string, startIndex,
 			return fmt.Errorf("failed to apply formatting: %v", err)
 		}
 	}
-
-	// Add configurable delay after formatting application to avoid API rate limits
-	time.Sleep(time.Duration(FormattingDelaySeconds) * time.Second)
 
 	return nil
 }

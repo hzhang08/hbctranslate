@@ -63,12 +63,18 @@ func extractFirst10LinesWithFormatting(doc *docs.Document) string {
 						// Indentation
 						if style.IndentFirstLine != nil {
 							result.WriteString(fmt.Sprintf("First Line Indent: %.1f pt\n", style.IndentFirstLine.Magnitude))
+							result.WriteString(fmt.Sprintf("First Line Indent Unit: %s\n", style.IndentFirstLine.Unit))
+
 						}
 						if style.IndentStart != nil {
 							result.WriteString(fmt.Sprintf("Left Indent: %.1f pt\n", style.IndentStart.Magnitude))
+							result.WriteString(fmt.Sprintf("Left Indent Unit: %s\n", style.IndentStart.Unit))
+
 						}
 						if style.IndentEnd != nil {
 							result.WriteString(fmt.Sprintf("Right Indent: %.1f pt\n", style.IndentEnd.Magnitude))
+							result.WriteString(fmt.Sprintf("Right Indent Unit: %s\n", style.IndentEnd.Unit))
+
 						}
 
 						// Bullet points
