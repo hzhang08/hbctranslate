@@ -74,6 +74,22 @@ Document ID: 12sJRJ57pNy9zJ6YMD9_HRNuD_UPuWEWnjIBxvul8sRQ
 First line: This is the first line of the document
 ```
 
+### Analyze Document Formatting
+
+Analyze and display formatting details for the first 100 lines of a document:
+
+```bash
+go run . analyze "https://docs.google.com/document/d/1CitsXplsjF0q6SgdjlwyFd_4el5TPQa63YzflnTD6Z8"
+```
+
+This command will:
+- Extract and display formatting features for each line
+- Show alignment (START, CENTER, END, JUSTIFIED)
+- Display indentation values (first line, left, right)
+- Show font details (family, size)
+- Display text styling (bold, italic, underline)
+- Indicate bullet point presence
+
 ### Document Synchronization and Formatting
 
 Synchronize formatting between two documents (source and target):
