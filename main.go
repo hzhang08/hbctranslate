@@ -343,6 +343,20 @@ func applyChineseLineSpacing(docID string) error {
 func applyFormattingToRange(docsService *docs.Service, docID string, startIndex, endIndex int64, features *LineFeatures) error {
 	var requests []*docs.Request
 
+	// Print all the features applied to this line
+	fmt.Println("Applying the following features to lines:")
+	fmt.Printf("Alignment: %s\n", features.Alignment)
+	if features.FirstLineIndent != nil {
+		fmt.Printf("First Line Indent: %f\n", *features.FirstLineIndent)
+	}
+	if features.LeftIndent != nil {
+		fmt.Printf("Left Indent: %f\n", *features.LeftIndent)
+	}
+	if features.RightIndent != nil {
+		fmt.Printf("Right Indent: %f\n", *features.RightIndent)
+	}
+	fmt.Printf("Has Bullet: %t\n", features.HasBullet)
+
 	// Apply paragraph style (alignment, indentation, bullets)
 	if features.Alignment != "" || features.FirstLineIndent != nil || features.LeftIndent != nil || features.RightIndent != nil || features.HasBullet {
 		paragraphStyle := &docs.ParagraphStyle{}
