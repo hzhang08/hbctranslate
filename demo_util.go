@@ -30,11 +30,11 @@ func getFirstLineFromDoc(docID string) (string, error) {
 		return "", fmt.Errorf("unable to retrieve document: %v", err)
 	}
 
-	// Extract first 10 lines of text with formatting
-	first10LinesInfo := extractFirst10LinesWithFormatting(doc)
-	if first10LinesInfo == "" {
+	// Extract first 100 lines of text with formatting
+	first100LinesInfo := extractFirst100LinesWithFormatting(doc)
+	if first100LinesInfo == "" {
 		return "", fmt.Errorf("no text content found in document")
 	}
 
-	return first10LinesInfo, nil
+	return first100LinesInfo, nil
 }

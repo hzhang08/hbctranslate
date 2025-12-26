@@ -55,6 +55,9 @@ type LineFeatures struct {
 	HasBullet    bool
 	ListId       string
 	NestingLevel int64
+
+	// Tab properties
+	LeadingTabs int // Number of leading tab characters
 }
 
 // LineInfo contains line content and associated formatting
@@ -360,6 +363,21 @@ func applyFormattingToRange(docsService *docs.Service, docID string, startIndex,
 		fmt.Printf("Right Indent: %f\n", *features.RightIndent)
 	}
 	fmt.Printf("Has Bullet: %t\n", features.HasBullet)
+	fmt.Printf("Leading Tabs: %d\n", features.LeadingTabs)
+
+	// Insert leading tabs if needed
+	if features.LeadingTabs > 0 {
+		tabs := strings.Repeat("\t", features.LeadingTabs)
+		insertRequest := &docs.Request{
+			InsertText: &docs.InsertTextRequest{
+				Location: &docs.Location{
+					Index: startIndex,
+				},
+				Text: tabs,
+			},
+		}
+		requests = append(requests, insertRequest)
+	}
 
 	// Apply paragraph style (alignment, indentation, bullets)
 	if features.Alignment != "" || features.FirstLineIndent != nil || features.LeftIndent != nil || features.RightIndent != nil || features.HasBullet {
@@ -519,6 +537,19 @@ func extractLineFeatures(element *docs.StructuralElement, textRun *docs.TextRun,
 	features := &LineFeatures{
 		Text: text,
 	}
+
+	// Count leading tabs from textRun.Content
+	leadingTabs := 0
+	if textRun != nil && textRun.Content != "" {
+		for _, char := range textRun.Content {
+			if char == '\t' {
+				leadingTabs++
+			} else {
+				break
+			}
+		}
+	}
+	features.LeadingTabs = leadingTabs
 
 	// Extract paragraph style information
 	if element.Paragraph != nil && element.Paragraph.ParagraphStyle != nil {
