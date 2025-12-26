@@ -115,12 +115,12 @@ func main() {
 			os.Exit(1)
 		}
 		syncDocumentFormatting(os.Args[2], os.Args[3])
-	case "center-align":
+	case "test-action":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: go run main.go center-align <google-docs-url>")
+			fmt.Println("Usage: go run main.go test-action <google-docs-url>")
 			os.Exit(1)
 		}
-		centerAlignDocument(os.Args[2])
+		testAction(os.Args[2])
 	case "add-spacing":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: go run main.go add-spacing <google-docs-url>")
@@ -139,19 +139,19 @@ func showUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  go run main.go analyze <google-docs-url>")
 	fmt.Println("  go run main.go sync-format <source-doc-url> <target-doc-url>")
-	fmt.Println("  go run main.go center-align <google-docs-url>")
+	fmt.Println("  go run main.go test-action <google-docs-url>")
 	fmt.Println("  go run main.go add-spacing <google-docs-url>")
 	fmt.Println("")
 	fmt.Println("Commands:")
 	fmt.Println("  analyze      Analyze document formatting (first 100 lines)")
 	fmt.Println("  sync-format  Synchronize formatting from source to target document")
-	fmt.Println("  center-align Align all lines in document to center")
+	fmt.Println("  test-action  Test action for development purposes")
 	fmt.Println("  add-spacing  Add empty line after lines starting with Chinese characters")
 	fmt.Println("")
 	fmt.Println("Examples:")
 	fmt.Println("  go run main.go analyze \"https://docs.google.com/document/d/12sJRJ57pNy9zJ6YMD9_HRNuD_UPuWEWnjIBxvul8sRQ/edit\"")
 	fmt.Println("  go run main.go sync-format \"<source-url>\" \"<target-url>\"")
-	fmt.Println("  go run main.go center-align \"<document-url>\"")
+	fmt.Println("  go run main.go test-action \"<document-url>\"")
 	fmt.Println("  go run main.go add-spacing \"<document-url>\"")
 }
 
@@ -169,6 +169,99 @@ func analyzeDocument(docURL string) {
 	}
 
 	fmt.Printf("First line: %s\n", firstLine)
+}
+
+// testAction performs test actions on a document (currently inserts tab at beginning of every line)
+func testAction(docURL string) {
+	docID := extractDocumentID(docURL)
+	if docID == "" {
+		log.Fatal("Invalid Google Docs URL. Please provide a valid document URL.")
+	}
+
+	fmt.Printf("Document ID: %s\n", docID)
+
+	err := insertTabsAtLineStart(docID)
+	if err != nil {
+		log.Fatalf("Error performing test action: %v", err)
+	}
+
+	fmt.Println("Test action completed successfully!")
+}
+
+// insertTabsAtLineStart inserts a tab character at the beginning of every line in the document
+func insertTabsAtLineStart(docID string) error {
+	ctx := context.Background()
+
+	// Load credentials
+	credentialsFile := "churchoutline.json"
+	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
+		return fmt.Errorf("churchoutline.json not found. Please follow setup instructions in README.md")
+	}
+
+	// Create Docs service with write permissions
+	docsService, err := docs.NewService(ctx, option.WithCredentialsFile(credentialsFile), option.WithScopes(docs.DocumentsScope))
+	if err != nil {
+		return fmt.Errorf("unable to create Docs service: %v", err)
+	}
+
+	// Get document to find all paragraph ranges
+	doc, err := docsService.Documents.Get(docID).Do()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve document: %v", err)
+	}
+
+	// Build batch update requests to insert tabs at the start of each paragraph
+	var requests []*docs.Request
+
+	// Iterate through document content to find paragraphs
+	// We need to process in reverse order to maintain correct indices after insertions
+	var paragraphIndices []int64
+	for _, element := range doc.Body.Content {
+		if element.Paragraph != nil {
+			// Check if paragraph has actual text content
+			hasText := false
+			for _, paragraphElement := range element.Paragraph.Elements {
+				if paragraphElement.TextRun != nil && strings.TrimSpace(paragraphElement.TextRun.Content) != "" {
+					hasText = true
+					break
+				}
+			}
+			if hasText {
+				paragraphIndices = append(paragraphIndices, element.StartIndex)
+			}
+		}
+	}
+
+	// Process in reverse order to maintain correct indices
+	for i := len(paragraphIndices) - 1; i >= 0; i-- {
+		insertRequest := &docs.Request{
+			InsertText: &docs.InsertTextRequest{
+				Location: &docs.Location{
+					Index: paragraphIndices[i],
+				},
+				Text: "\t",
+			},
+		}
+		requests = append(requests, insertRequest)
+	}
+
+	if len(requests) == 0 {
+		return fmt.Errorf("no paragraphs found to update")
+	}
+
+	fmt.Printf("Inserting tabs at the beginning of %d lines...\n", len(requests))
+
+	// Execute batch update
+	batchUpdateRequest := &docs.BatchUpdateDocumentRequest{
+		Requests: requests,
+	}
+
+	_, err = docsService.Documents.BatchUpdate(docID, batchUpdateRequest).Do()
+	if err != nil {
+		return fmt.Errorf("failed to insert tabs: %v", err)
+	}
+
+	return nil
 }
 
 // centerAlignDocument aligns all lines in a document to center
@@ -347,6 +440,7 @@ func applyFormattingToRange(docsService *docs.Service, docID string, startIndex,
 
 	// Add configurable delay after formatting application to avoid API rate limits
 	time.Sleep(time.Duration(FormattingDelaySeconds) * time.Second)
+	fmt.Printf("Applying features to range [%d,%d)\n", startIndex, endIndex)
 
 	var requests []*docs.Request
 

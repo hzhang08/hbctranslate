@@ -104,6 +104,19 @@ This command will:
 - Handle bilingual documents with English and Chinese content
 - Automatically detect line types and apply appropriate formatting rules
 
+### Test Action (Development)
+
+Perform test actions on a document for development and debugging purposes:
+
+```bash
+go run . test-action "https://docs.google.com/document/d/1KLQOlC6lY3JujsTtoRxDF79SsVE5DWouNV0JBBAB8kQ/edit?tab=t.0"
+```
+
+This command currently:
+- Inserts a tab character at the beginning of every line in the document
+- Processes paragraphs in reverse order to maintain correct character indices
+- Useful for testing document manipulation and API interactions
+
 ### Adding Spacing After Chinese Lines
 
 Add empty lines after Chinese text for better readability:
