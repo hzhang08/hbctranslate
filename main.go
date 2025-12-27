@@ -459,20 +459,6 @@ func applyFormattingToRange(docsService *docs.Service, docID string, startIndex,
 	fmt.Printf("Has Bullet: %t\n", features.HasBullet)
 	fmt.Printf("Leading Tabs: %d\n", features.LeadingTabs)
 
-	// Insert leading tabs if needed
-	if features.LeadingTabs > 0 {
-		tabs := strings.Repeat("\t", features.LeadingTabs)
-		insertRequest := &docs.Request{
-			InsertText: &docs.InsertTextRequest{
-				Location: &docs.Location{
-					Index: startIndex,
-				},
-				Text: tabs,
-			},
-		}
-		requests = append(requests, insertRequest)
-	}
-
 	// Apply paragraph style (alignment, indentation, bullets)
 	if features.Alignment != "" || features.FirstLineIndent != nil || features.LeftIndent != nil || features.RightIndent != nil || features.HasBullet {
 		paragraphStyle := &docs.ParagraphStyle{}
@@ -759,6 +745,9 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 	// Track what was processed last - start with false so we read the first source line normally
 	lastProcessedWasChinese := false
 
+	// Hashmap to track tabs to add for each loop iteration
+	tabsToAddMap := make(map[int]int)
+
 	var sourceLineInfo *LineInfo
 	var sourceKey string
 	var sourceFeatures *LineFeatures
@@ -816,6 +805,12 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 		if decision.LineType == LineTypeChinese || decision.LineType == LineTypeMixed {
 			fmt.Printf("Target Line %d (Chinese): %s - applying previous formatting\n", targetLineNum, targetLineInfo.Text)
 
+			// Check if previous features contain tabs
+			if previousFeatures != nil && previousFeatures.LeadingTabs > 0 {
+				tabsToAddMap[loopID] = previousFeatures.LeadingTabs
+				fmt.Printf("  Chinese line: will add %d tabs (from previous features)\n", previousFeatures.LeadingTabs)
+			}
+
 			// Apply previous line's formatting if available and decision recommends it
 			if decision.ShouldFollowPrevStyle && previousFeatures != nil {
 				err := applyFormattingToRange(docsService, targetDocID, targetLineInfo.Element.StartIndex, targetLineInfo.Element.EndIndex, previousFeatures)
@@ -844,6 +839,12 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 				}
 			}
 
+			// Check if source features contain tabs
+			if sourceFeatures.LeadingTabs > 0 {
+				tabsToAddMap[loopID] = sourceFeatures.LeadingTabs
+				fmt.Printf("  English line: will add %d tabs (from source features)\n", sourceFeatures.LeadingTabs)
+			}
+
 			// Keys match - apply source formatting to target
 			err := applyFormattingToRange(docsService, targetDocID, targetLineInfo.Element.StartIndex, targetLineInfo.Element.EndIndex, sourceFeatures)
 			if err != nil {
@@ -855,6 +856,88 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 
 			// Mark that we processed an English line - source cursor stays on same line
 			lastProcessedWasChinese = false
+		}
+	}
+
+	// Print the tabs to add hashmap at the end
+	fmt.Println("\n=== Tabs to Add Summary ===")
+	if len(tabsToAddMap) == 0 {
+		fmt.Println("No tabs to add for any loop iteration")
+	} else {
+		fmt.Printf("Total loop iterations with tabs: %d\n", len(tabsToAddMap))
+		for loopID := 1; loopID <= len(tabsToAddMap)+10; loopID++ {
+			if tabs, exists := tabsToAddMap[loopID]; exists {
+				fmt.Printf("Loop %d: %d tab(s)\n", loopID, tabs)
+			}
+		}
+	}
+	fmt.Println("==========================\n")
+
+	// Now insert tabs at the beginning of lines in target document
+	if len(tabsToAddMap) > 0 {
+		fmt.Println("Inserting tabs into target document...")
+
+		// Re-fetch the target document to get fresh indices
+		targetDoc, err := docsService.Documents.Get(targetDocID).Do()
+		if err != nil {
+			return fmt.Errorf("unable to re-fetch target document: %v", err)
+		}
+
+		// Reset target cursor to start of document
+		targetCursor = &DocumentCursor{Document: targetDoc, ElementIndex: 0, LineIndex: 0}
+
+		// Collect line start indices for each loop iteration
+		lineStartIndices := make(map[int]int64)
+		currentLoopID := 1
+
+		for {
+			lineInfo, err := getNextNonEmptyLine(targetCursor)
+			if err != nil {
+				if err.Error() == "end of document" {
+					break
+				}
+				return fmt.Errorf("error reading target document for tab insertion: %v", err)
+			}
+
+			// Store the start index for this loop iteration
+			lineStartIndices[currentLoopID] = lineInfo.Element.StartIndex
+			currentLoopID++
+		}
+
+		// Build batch insert requests in reverse order to maintain correct indices
+		var insertRequests []*docs.Request
+
+		// Process in reverse order of loop IDs
+		for loopID := currentLoopID - 1; loopID >= 1; loopID-- {
+			if numTabs, exists := tabsToAddMap[loopID]; exists {
+				if startIndex, hasIndex := lineStartIndices[loopID]; hasIndex {
+					tabs := strings.Repeat("\t", numTabs)
+					insertRequest := &docs.Request{
+						InsertText: &docs.InsertTextRequest{
+							Location: &docs.Location{
+								Index: startIndex,
+							},
+							Text: tabs,
+						},
+					}
+					insertRequests = append(insertRequests, insertRequest)
+					fmt.Printf("  Preparing to insert %d tab(s) at loop %d (index %d)\n", numTabs, loopID, startIndex)
+				}
+			}
+		}
+
+		// Execute batch insert
+		if len(insertRequests) > 0 {
+			batchUpdateRequest := &docs.BatchUpdateDocumentRequest{
+				Requests: insertRequests,
+			}
+
+			_, err = docsService.Documents.BatchUpdate(targetDocID, batchUpdateRequest).Do()
+			if err != nil {
+				return fmt.Errorf("failed to insert tabs: %v", err)
+			}
+
+			fmt.Printf("Successfully inserted tabs at %d locations\n", len(insertRequests))
 		}
 	}
 
