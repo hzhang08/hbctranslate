@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/api/docs/v1"
+	"google.golang.org/api/drive/v2"
 	"google.golang.org/api/option"
 )
 
@@ -116,11 +117,7 @@ func main() {
 		}
 		syncDocumentFormatting(os.Args[2], os.Args[3])
 	case "test-action":
-		if len(os.Args) < 3 {
-			fmt.Println("Usage: go run main.go test-action <google-docs-url>")
-			os.Exit(1)
-		}
-		testAction(os.Args[2])
+		testAction()
 	case "add-spacing":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: go run main.go add-spacing <google-docs-url>")
@@ -171,21 +168,61 @@ func analyzeDocument(docURL string) {
 	fmt.Printf("First line: %s\n", firstLine)
 }
 
-// testAction performs test actions on a document (currently inserts tab at beginning of every line)
-func testAction(docURL string) {
-	docID := extractDocumentID(docURL)
-	if docID == "" {
-		log.Fatal("Invalid Google Docs URL. Please provide a valid document URL.")
-	}
-
-	fmt.Printf("Document ID: %s\n", docID)
-
-	err := insertTabsAtLineStart(docID)
+// testAction creates a new Google Doc and sets permissions for anyone with the link to edit
+func testAction() {
+	err := createNewDocWithPublicEdit()
 	if err != nil {
-		log.Fatalf("Error performing test action: %v", err)
+		log.Fatalf("Error creating document: %v", err)
+	}
+}
+
+// createNewDocWithPublicEdit creates a new Google Doc and sets permissions for anyone with the link to edit
+func createNewDocWithPublicEdit() error {
+	ctx := context.Background()
+
+	// Load credentials
+	credentialsFile := "churchoutline.json"
+	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
+		return fmt.Errorf("churchoutline.json not found. Please follow setup instructions in README.md")
 	}
 
+	// Create Drive service with full permissions
+	driveService, err := drive.NewService(ctx, option.WithCredentialsFile(credentialsFile), option.WithScopes(drive.DriveFileScope))
+	if err != nil {
+		return fmt.Errorf("unable to create Drive service: %v", err)
+	}
+
+	// Create a new Google Doc
+	doc := &drive.File{
+		Title:    "New Document",
+		MimeType: "application/vnd.google-apps.document",
+	}
+
+	createdFile, err := driveService.Files.Insert(doc).Fields("id, title, alternateLink").Do()
+	if err != nil {
+		return fmt.Errorf("unable to create document: %v", err)
+	}
+
+	fmt.Printf("Document created successfully!\n")
+	fmt.Printf("Document ID: %s\n", createdFile.Id)
+	fmt.Printf("Document Name: %s\n", createdFile.Title)
+	fmt.Printf("Document URL: %s\n", createdFile.AlternateLink)
+
+	// Set permissions: anyone with the link can edit
+	permission := &drive.Permission{
+		Type: "anyone",
+		Role: "writer",
+	}
+
+	_, err = driveService.Permissions.Insert(createdFile.Id, permission).Do()
+	if err != nil {
+		return fmt.Errorf("unable to set permissions: %v", err)
+	}
+
+	fmt.Println("\nPermissions set: Anyone with the link can edit")
 	fmt.Println("Test action completed successfully!")
+
+	return nil
 }
 
 // insertTabsAtLineStart inserts a tab character at the beginning of every line in the document
