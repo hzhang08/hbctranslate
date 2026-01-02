@@ -908,7 +908,7 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 			}
 		}
 	}
-	fmt.Println("==========================\n")
+	fmt.Println("==========================")
 
 	// Now insert tabs at the beginning of lines in target document
 	if len(tabsToAddMap) > 0 {
