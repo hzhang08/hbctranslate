@@ -100,14 +100,31 @@ func extractFirst100LinesWithFormatting(doc *docs.Document) string {
 			// Check if paragraph has text content
 			var textContent strings.Builder
 			var firstTextRun *docs.TextRun
+			tabsFromSkippedRuns := 0
 
 			for _, paragraphElement := range element.Paragraph.Elements {
-				if paragraphElement.TextRun != nil && strings.TrimSpace(paragraphElement.TextRun.Content) != "" {
-					textContent.WriteString(paragraphElement.TextRun.Content)
-					if firstTextRun == nil {
-						firstTextRun = paragraphElement.TextRun
-					}
+				if paragraphElement.TextRun == nil {
+					continue
 				}
+
+				content := paragraphElement.TextRun.Content
+				if strings.TrimSpace(content) == "" {
+					if firstTextRun == nil {
+						tabsFromSkippedRuns += strings.Count(content, "\t")
+					}
+					continue
+				}
+
+				textContent.WriteString(content)
+				if firstTextRun == nil {
+					firstTextRun = paragraphElement.TextRun
+				}
+			}
+
+			if firstTextRun != nil && tabsFromSkippedRuns > 0 {
+				firstTextRunWithTabs := *firstTextRun
+				firstTextRunWithTabs.Content = strings.Repeat("\t", tabsFromSkippedRuns) + firstTextRunWithTabs.Content
+				firstTextRun = &firstTextRunWithTabs
 			}
 
 			paragraphText := strings.TrimSpace(textContent.String())
@@ -153,14 +170,31 @@ func extractFirstLineWithFormatting(doc *docs.Document) string {
 			// Check if paragraph has text content
 			var textContent strings.Builder
 			var firstTextRun *docs.TextRun
+			tabsFromSkippedRuns := 0
 
 			for _, paragraphElement := range element.Paragraph.Elements {
-				if paragraphElement.TextRun != nil && strings.TrimSpace(paragraphElement.TextRun.Content) != "" {
-					textContent.WriteString(paragraphElement.TextRun.Content)
-					if firstTextRun == nil {
-						firstTextRun = paragraphElement.TextRun
-					}
+				if paragraphElement.TextRun == nil {
+					continue
 				}
+
+				content := paragraphElement.TextRun.Content
+				if strings.TrimSpace(content) == "" {
+					if firstTextRun == nil {
+						tabsFromSkippedRuns += strings.Count(content, "\t")
+					}
+					continue
+				}
+
+				textContent.WriteString(content)
+				if firstTextRun == nil {
+					firstTextRun = paragraphElement.TextRun
+				}
+			}
+
+			if firstTextRun != nil && tabsFromSkippedRuns > 0 {
+				firstTextRunWithTabs := *firstTextRun
+				firstTextRunWithTabs.Content = strings.Repeat("\t", tabsFromSkippedRuns) + firstTextRunWithTabs.Content
+				firstTextRun = &firstTextRunWithTabs
 			}
 
 			firstLineText := strings.TrimSpace(textContent.String())
