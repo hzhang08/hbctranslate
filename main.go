@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -111,11 +112,19 @@ func main() {
 		}
 		analyzeDocument(os.Args[2])
 	case "sync-format":
-		if len(os.Args) < 4 {
-			fmt.Println("Usage: go run main.go sync-format <source-doc-url> <target-doc-url>")
+		fs := flag.NewFlagSet("sync-format", flag.ExitOnError)
+		startLoop := fs.Int("start-loop", 1, "")
+		_ = fs.Parse(os.Args[2:])
+		args := fs.Args()
+		if len(args) < 2 {
+			fmt.Println("Usage: go run main.go sync-format [--start-loop N] <source-doc-url> <target-doc-url>")
 			os.Exit(1)
 		}
-		syncDocumentFormatting(os.Args[2], os.Args[3])
+		if *startLoop < 1 {
+			fmt.Println("Error: --start-loop must be >= 1")
+			os.Exit(1)
+		}
+		syncDocumentFormatting(args[0], args[1], *startLoop)
 	case "test-action":
 		testAction()
 	case "add-spacing":
@@ -135,7 +144,7 @@ func showUsage() {
 	fmt.Println("Google Docs Tool")
 	fmt.Println("Usage:")
 	fmt.Println("  go run main.go analyze <google-docs-url>")
-	fmt.Println("  go run main.go sync-format <source-doc-url> <target-doc-url>")
+	fmt.Println("  go run main.go sync-format [--start-loop N] <source-doc-url> <target-doc-url>")
 	fmt.Println("  go run main.go test-action <google-docs-url>")
 	fmt.Println("  go run main.go add-spacing <google-docs-url>")
 	fmt.Println("")
@@ -148,6 +157,7 @@ func showUsage() {
 	fmt.Println("Examples:")
 	fmt.Println("  go run main.go analyze \"https://docs.google.com/document/d/12sJRJ57pNy9zJ6YMD9_HRNuD_UPuWEWnjIBxvul8sRQ/edit\"")
 	fmt.Println("  go run main.go sync-format \"<source-url>\" \"<target-url>\"")
+	fmt.Println("  go run main.go sync-format --start-loop 200 \"<source-url>\" \"<target-url>\"")
 	fmt.Println("  go run main.go test-action \"<document-url>\"")
 	fmt.Println("  go run main.go add-spacing \"<document-url>\"")
 }
@@ -625,7 +635,7 @@ func applyFormattingToRange(docsService *docs.Service, docID string, startIndex,
 }
 
 // syncDocumentFormatting synchronizes formatting from source to target document
-func syncDocumentFormatting(sourceURL, targetURL string) {
+func syncDocumentFormatting(sourceURL, targetURL string, startLoop int) {
 	sourceDocID := extractDocumentID(sourceURL)
 	targetDocID := extractDocumentID(targetURL)
 
@@ -639,7 +649,7 @@ func syncDocumentFormatting(sourceURL, targetURL string) {
 	fmt.Printf("Source Document ID: %s\n", sourceDocID)
 	fmt.Printf("Target Document ID: %s\n", targetDocID)
 
-	err := processDualDocuments(sourceDocID, targetDocID)
+	err := processDualDocuments(sourceDocID, targetDocID, startLoop)
 	if err != nil {
 		log.Fatalf("Error synchronizing documents: %v", err)
 	}
@@ -738,7 +748,7 @@ func extractLineFeatures(element *docs.StructuralElement, textRun *docs.TextRun,
 }
 
 // processDualDocuments implements the main dual-document synchronization algorithm
-func processDualDocuments(sourceDocID, targetDocID string) error {
+func processDualDocuments(sourceDocID, targetDocID string, startLoop int) error {
 	ctx := context.Background()
 
 	// Load credentials
@@ -770,11 +780,11 @@ func processDualDocuments(sourceDocID, targetDocID string) error {
 	targetCursor := &DocumentCursor{Document: targetDoc, ElementIndex: 0, LineIndex: 0}
 
 	// Process documents
-	return synchronizeDocuments(sourceCursor, targetCursor, targetDocID, docsService)
+	return synchronizeDocuments(sourceCursor, targetCursor, targetDocID, docsService, startLoop)
 }
 
 // synchronizeDocuments performs the actual synchronization between two documents
-func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocID string, docsService *docs.Service) error {
+func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocID string, docsService *docs.Service, startLoop int) error {
 	sourceLineNum := 0
 	targetLineNum := 0
 	var previousFeatures *LineFeatures
@@ -801,7 +811,53 @@ func synchronizeDocuments(sourceCursor, targetCursor *DocumentCursor, targetDocI
 
 	fmt.Println("Starting document synchronization...")
 
-	for loopID := 1; ; loopID++ {
+	if startLoop > 1 {
+		fmt.Printf("Fast-forwarding to loop %d...\n", startLoop)
+		for loopID := 1; loopID < startLoop; loopID++ {
+			if shouldAdvanceSourceCursor(lastProcessedWasChinese) {
+				var err error
+				sourceLineInfo, err = getNextNonEmptyLine(sourceCursor)
+				if err != nil {
+					if err.Error() == "end of document" {
+						return fmt.Errorf("reached end of source document while fast-forwarding at source line %d", sourceLineNum)
+					}
+					return fmt.Errorf("error reading source document while fast-forwarding: %v", err)
+				}
+				sourceLineNum++
+				sourceKey = generateLineKey(sourceLineInfo.Text)
+				sourceFeatures = extractLineFeatures(sourceLineInfo.Element, sourceLineInfo.TextRun, sourceLineInfo.Text)
+			}
+
+			targetLineInfo, err := getNextNonEmptyLine(targetCursor)
+			if err != nil {
+				if err.Error() == "end of document" {
+					return fmt.Errorf("reached end of target document while fast-forwarding at target line %d", targetLineNum)
+				}
+				return fmt.Errorf("error reading target document while fast-forwarding: %v", err)
+			}
+			targetLineNum++
+
+			decision := AnalyzeLineMatch(sourceLineInfo.Text, targetLineInfo.Text, previousFeatures, lastProcessedWasChinese)
+			if decision.LineType == LineTypeChinese || decision.LineType == LineTypeMixed {
+				lastProcessedWasChinese = true
+			} else {
+				targetKey := generateLineKey(targetLineInfo.Text)
+				if !decision.LinesMatch {
+					return &SyncError{
+						SourceLine: sourceLineNum,
+						TargetLine: targetLineNum,
+						SourceKey:  sourceKey,
+						TargetKey:  targetKey,
+						Message:    "Line content mismatch",
+					}
+				}
+				previousFeatures = sourceFeatures
+				lastProcessedWasChinese = false
+			}
+		}
+	}
+
+	for loopID := startLoop; ; loopID++ {
 		fmt.Printf("Loop %d, lastProcessedWasChinese: %v\n", loopID, lastProcessedWasChinese)
 		// Only advance source cursor if the last target line processed was Chinese
 		if shouldAdvanceSourceCursor(lastProcessedWasChinese) {

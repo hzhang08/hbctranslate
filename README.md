@@ -98,6 +98,12 @@ Synchronize formatting between two documents (source and target):
 go run . sync-format "https://docs.google.com/document/d/1FZcELu78lNNvjSEitEpUn_n0B0xCfgrq3uI_1d_Hm7g/edit?tab=t.0" "https://docs.google.com/document/d/1KLQOlC6lY3JujsTtoRxDF79SsVE5DWouNV0JBBAB8kQ/edit?tab=t.0"
 ```
 
+Optionally, you can start the synchronization loop from a specific loop number (useful for resuming after a mismatch):
+
+```bash
+go run . sync-format --start-loop 223 "<source-url>" "<target-url>"
+```
+
 This command will:
 - Read formatting from the source document (first URL)
 - Apply matching formatting to corresponding lines in the target document (second URL)
