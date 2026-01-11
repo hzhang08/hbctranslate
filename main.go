@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/drive/v2"
@@ -126,7 +127,11 @@ func main() {
 		}
 		syncDocumentFormatting(args[0], args[1], *startLoop)
 	case "test-action":
-		testAction()
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: go run main.go test-action <google-docs-url>")
+			os.Exit(1)
+		}
+		testAction(os.Args[2])
 	case "add-spacing":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: go run main.go add-spacing <google-docs-url>")
@@ -178,12 +183,124 @@ func analyzeDocument(docURL string) {
 	fmt.Printf("First line: %s\n", firstLine)
 }
 
-// testAction creates a new Google Doc and sets permissions for anyone with the link to edit
-func testAction() {
-	err := createNewDocWithPublicEdit()
-	if err != nil {
-		log.Fatalf("Error creating document: %v", err)
+// testAction updates a Google Doc by converting lines starting with '·' into proper bullet points
+func testAction(docURL string) {
+	docID := extractDocumentID(docURL)
+	if docID == "" {
+		log.Fatal("Invalid Google Docs URL. Please provide a valid document URL.")
 	}
+
+	fmt.Printf("Document ID: %s\n", docID)
+
+	err := convertDotLinesToBullets(docID)
+	if err != nil {
+		log.Fatalf("Error updating document: %v", err)
+	}
+}
+
+func convertDotLinesToBullets(docID string) error {
+	ctx := context.Background()
+
+	// Load credentials
+	credentialsFile := "churchoutline.json"
+	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
+		return fmt.Errorf("churchoutline.json not found. Please follow setup instructions in README.md")
+	}
+
+	// Create Docs service with write permissions
+	docsService, err := docs.NewService(ctx, option.WithCredentialsFile(credentialsFile), option.WithScopes(docs.DocumentsScope))
+	if err != nil {
+		return fmt.Errorf("unable to create Docs service: %v", err)
+	}
+
+	// Get document to analyze content
+	doc, err := docsService.Documents.Get(docID).Do()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve document: %v", err)
+	}
+
+	var requests []*docs.Request
+	updatedCount := 0
+
+	// Process in reverse order to maintain correct indices
+	for i := len(doc.Body.Content) - 1; i >= 0; i-- {
+		element := doc.Body.Content[i]
+		if element.Paragraph == nil || len(element.Paragraph.Elements) == 0 {
+			continue
+		}
+
+		var deleteStart, deleteEnd int64
+		foundDot := false
+
+		for _, pe := range element.Paragraph.Elements {
+			if pe.TextRun == nil {
+				continue
+			}
+
+			content := pe.TextRun.Content
+			if content == "" {
+				continue
+			}
+
+			runes := []rune(content)
+			for runeIdx, r := range runes {
+				if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+					continue
+				}
+				if r == '·' {
+					prefixUnits := len(utf16.Encode(runes[:runeIdx]))
+					deleteStart = pe.StartIndex + int64(prefixUnits)
+					deleteEnd = deleteStart + int64(len(utf16.Encode([]rune{r})))
+					foundDot = true
+				}
+				// Stop at first non-whitespace char, regardless of whether it was dot
+				goto firstCharDone
+			}
+		}
+	firstCharDone:
+
+		if !foundDot {
+			continue
+		}
+
+		// Apply bullets to the paragraph
+		requests = append(requests, &docs.Request{
+			CreateParagraphBullets: &docs.CreateParagraphBulletsRequest{
+				Range: &docs.Range{
+					StartIndex: element.StartIndex,
+					EndIndex:   element.EndIndex,
+				},
+				BulletPreset: "BULLET_CHECKBOX",
+			},
+		})
+
+		// Delete the leading '·' character
+		requests = append(requests, &docs.Request{
+			DeleteContentRange: &docs.DeleteContentRangeRequest{
+				Range: &docs.Range{
+					StartIndex: deleteStart,
+					EndIndex:   deleteEnd,
+				},
+			},
+		})
+
+		updatedCount++
+	}
+
+	if len(requests) == 0 {
+		fmt.Println("No lines starting with '·' found.")
+		return nil
+	}
+
+	fmt.Printf("Converting %d lines starting with '·' into bullet points...\n", updatedCount)
+
+	batchUpdateRequest := &docs.BatchUpdateDocumentRequest{Requests: requests}
+	_, err = docsService.Documents.BatchUpdate(docID, batchUpdateRequest).Do()
+	if err != nil {
+		return fmt.Errorf("failed to update document: %v", err)
+	}
+
+	return nil
 }
 
 // createNewDocWithPublicEdit creates a new Google Doc and sets permissions for anyone with the link to edit
