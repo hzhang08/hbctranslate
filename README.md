@@ -110,6 +110,33 @@ This command will:
 - Handle bilingual documents with English and Chinese content
 - Automatically detect line types and apply appropriate formatting rules
 
+### End-to-end Translation + Formatting Sync
+
+Run a full pipeline that:
+- Reads the input doc URL from `application.yaml`
+- Creates a new output Google Doc named by `application.yaml.output_name`
+- Translates the full input doc using Grok (no chunking)
+- Writes the Grok output to the new doc (preserving newlines)
+- Waits for you to review and confirm
+- Runs `sync-format` to copy formatting from input to output
+
+```bash
+go run . e2e
+```
+
+Required local files (in the project root):
+- `application.yaml` (`input`, `output_name`)
+- `client_json` (OAuth client config for Drive API doc creation)
+- `token.json` (OAuth token cache for Drive API)
+- `churchoutline.json` (service account credentials for Google Docs API read/write)
+- `system_prompt` (Grok system prompt)
+- `prefix_prompt` (prepended before input doc content in Grok user prompt)
+- `grokkey` (xAI API key)
+- `sample_request` (reference only)
+
+Notes:
+- The input Google Doc must be shared with the service account `client_email` in `churchoutline.json`.
+
 ### Test Action (Development)
 
 Perform test actions on a document for development and debugging purposes:
